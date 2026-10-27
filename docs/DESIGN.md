@@ -380,3 +380,104 @@ argument tests only.
 - **S3** Split (in tmux) opens the agent in a new pane; promptfix stays usable.
 - **S4** A prompt with quotes, `$()`, backticks, newlines and `<tags>` arrives at the agent unchanged in both modes.
 - **S5** claude options (model, permission mode) and opencode `--auto` end up on the command line exactly as chosen.
+
+---
+
+# AP4 – Releases and installer (draft, not implemented)
+
+Tagged releases for Linux, macOS and Windows built in GitHub Actions, plus
+one-line installers. The repository goes public once this is done; until then
+downloads need auth and the installers are tested against local files.
+
+## Workflows
+
+**`ci.yml`** – on push and pull request:
+- `gofmt` check, `go vet`, `go test` on ubuntu, macos and windows (platform code
+  paths: exec, paths, symlinks)
+- cross-build of all 6 targets (`CGO_ENABLED=0`)
+- Go version from `go.mod`
+
+**`release.yml`** – on tag `v*`, and manually (`workflow_dispatch` with an
+existing tag):
+1. same tests as CI
+2. GoReleaser v2 builds and publishes the GitHub release
+3. build provenance attestation for the archives (`actions/attest-build-provenance`);
+   skipped while the repository is private (attestations for private repos
+   need GitHub Enterprise Cloud)
+
+## Versioning
+
+Semver tags set by hand, starting at `v0.1.0`. The tag is injected via
+`-X github.com/x0ptr/promptfix/internal/cli.Version={{.Tag}}`, so
+`promptfix version` prints it. Release notes are generated from the commits.
+
+## Artifacts
+
+| Platform | Archive |
+|---|---|
+| linux, darwin × amd64, arm64 | `promptfix_<os>_<arch>.tar.gz` |
+| windows × amd64, arm64 | `promptfix_windows_<arch>.zip` |
+| all | `checksums.txt` (SHA-256) |
+
+Archive names carry **no version**, so the latest release is reachable at
+`https://github.com/x0ptr/promptfix/releases/latest/download/<asset>` – no API
+calls, no rate limits, no `jq`. A pinned version uses
+`…/releases/download/<tag>/<asset>`.
+
+macOS binaries are not signed or notarized; installs via `curl` are not
+quarantined, so Gatekeeper does not block them (browser downloads would be).
+
+## `install.sh` (Linux, macOS)
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/x0ptr/promptfix/main/install.sh | bash
+curl -fsSL …/install.sh | PROMPTFIX_VERSION=v0.1.0 bash
+curl -fsSL …/install.sh | PROMPTFIX_INSTALL_DIR=/usr/local/bin bash
+```
+
+- Whole script wrapped in a function called on the last line, so a truncated
+  download never runs half a script.
+- Detects OS (`uname -s`) and arch (`x86_64`/`amd64` → amd64, `aarch64`/`arm64`
+  → arm64; on macOS under Rosetta `sysctl.proc_translated` → arm64).
+  Anything else → clear error with the list of supported platforms.
+- Needs `curl` (or `wget`), `tar`, `sha256sum` (or `shasum -a 256`); checks up front.
+- Downloads archive and `checksums.txt` into a temp dir (removed on exit),
+  verifies the SHA-256 – mismatch → abort, nothing installed.
+- Installs to `~/.local/bin` (no sudo) atomically (temp file + `mv`); prints old →
+  new version if promptfix was installed; warns if the directory is not in `PATH`.
+- `PROMPTFIX_DOWNLOAD_URL` overrides the base URL (tests, mirrors).
+- Optional: if `gh` is installed, prints the command to verify the attestation.
+
+## `install.ps1` (Windows)
+
+```powershell
+irm https://raw.githubusercontent.com/x0ptr/promptfix/main/install.ps1 | iex
+```
+
+- Arch from `$env:PROCESSOR_ARCHITECTURE` (AMD64 / ARM64).
+- Same checksum verification (`Get-FileHash`), same env variables.
+- Installs to `%LOCALAPPDATA%\Programs\promptfix` and adds it to the **user** PATH
+  (no admin rights).
+
+## Other
+
+- `scripts/install.sh` → `scripts/install-from-source.sh` (builds locally);
+  `install.sh` / `install.ps1` live in the repository root for short URLs.
+- No self-update (promptfix stays offline); rerun the installer to update.
+- Uninstall: README note (delete the binary; data and config paths listed).
+
+## Testing before the repository is public
+
+- Scripts: GoReleaser snapshot build locally, served from a local directory via
+  `PROMPTFIX_DOWNLOAD_URL`; checks I2–I5 on Linux. `install.ps1` is checked
+  for syntax only unless a Windows machine is available.
+- Workflow: a pre-release tag (e.g. `v0.1.0-rc.1`) on the private repo
+  exercises the release job; it can be deleted afterwards.
+
+## Acceptance
+
+- **I1** Push tag `v0.1.0` → release with 6 archives and `checksums.txt`; `promptfix version` prints `v0.1.0`.
+- **I2** `curl … | bash` on Linux (amd64) and macOS (arm64) installs the latest version to `~/.local/bin`.
+- **I3** `PROMPTFIX_VERSION=v0.1.0` installs exactly that version.
+- **I4** Tampered archive (checksum mismatch) → abort, nothing installed.
+- **I5** Unsupported platform → clear error.
