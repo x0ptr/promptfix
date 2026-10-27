@@ -1,6 +1,7 @@
 # promptfix
 
-Build structured prompts step by step in the terminal. Offline only.
+Build structured prompts step by step in the terminal, then hand them to
+claude or opencode. promptfix itself works offline.
 
 A prompt consists of tagged sections (`<product>`, `<technik>`, `<aufgabe>`, …).
 promptfix walks you through them, saves drafts with history, and renders the
@@ -46,6 +47,25 @@ Editor keys: `ctrl+n`/`ctrl+p` next/previous section, `ctrl+o` overview,
 `ctrl+c` quit.
 
 Shell completion: `promptfix completion bash|zsh|fish|powershell`.
+
+## Start an agent
+
+When the prompt is ready, start **claude** or **opencode** with it (currently the
+only supported agents; both are detected automatically):
+
+- `ctrl+g` in the prompt editor, `r` in the prompt list, or `promptfix run <name>`
+- **Handoff**: promptfix exits, the agent takes over the terminal
+- **Split**: the agent opens in a pane to the right (inside tmux, zellij or WezTerm)
+- claude: model and permission mode; opencode: `--auto`
+
+```sh
+promptfix run my-api                                   # picker
+promptfix run my-api --agent claude --model opus --permission-mode plan
+promptfix run my-api --agent opencode --mode split --auto
+```
+
+The agent runs in the directory promptfix was started in. promptfix itself
+stays offline; it only starts locally installed agent CLIs.
 
 ## Claude Code rules
 

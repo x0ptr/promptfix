@@ -289,7 +289,7 @@ Writing identical content is a no-op.
 
 ---
 
-# AP3 – Start an agent (draft, not implemented)
+# AP3 – Start an agent
 
 Build the prompt, then start **claude** or **opencode** with it. The user picks
 the agent. No headless mode, no embedded terminal.
@@ -344,7 +344,9 @@ with a hint (copy/export instead).
 ## Picker
 
 Opened with `ctrl+g` (prompt editor and overview), `r` (prompt list) or
-`promptfix run <name>`:
+`promptfix run <name>`. The prompt is saved before the agent starts.
+Keys: `↑/↓` field, `←/→` (or space) change value, `tab` completes the model,
+`enter` start, `esc` cancel.
 
 1. Agent: claude / opencode (detected state shown)
 2. Mode: Handoff / Split
@@ -358,7 +360,20 @@ The last selection is remembered per user (`<data>/launch.yaml`).
 `promptfix run <name> --agent claude --mode split --model opus --permission-mode plan`
 skips the picker.
 
-## Acceptance (proposal)
+Agents not installed are listed but not selectable; with no agent at all,
+`ctrl+g` shows the support note instead of the picker.
+
+## Verification
+
+Unit tests cover argument building, detection, launch file round trip and the
+picker flows. End to end in tmux 3.8 with fake `claude`/`opencode` scripts on
+`PATH` (recording argv and cwd): split from the editor, handoff via `run` and via
+the picker; the prompt arrived byte-identical (quotes, `$()`, backticks,
+newlines, tags), no shell injection, cwd = start directory, the handoff pane's
+PID runs the agent (promptfix replaced). zellij and WezTerm are covered by
+argument tests only.
+
+## Acceptance
 
 - **S1** Picker shows both agents with detection state; a missing agent is not selectable and the "only claude/opencode" note is shown.
 - **S2** Handoff starts the chosen agent in the start directory with the rendered prompt; promptfix is gone.

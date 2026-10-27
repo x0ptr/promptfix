@@ -83,10 +83,11 @@ const (
 	PromptQuit
 	PromptEdit
 	PromptNew
+	PromptRun
 )
 
 // RunPromptList shows the saved prompts. It returns the chosen action and,
-// for PromptEdit, the slug of the prompt.
+// for PromptEdit and PromptRun, the slug of the prompt.
 func RunPromptList(st *store.Store) (PromptAction, string, error) {
 	m := &promptListModel{st: st}
 	if err := m.reload(); err != nil {
@@ -149,6 +150,11 @@ func (m *promptListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.action, m.slug = PromptEdit, m.list[m.cursor].Slug()
 			return m, tea.Quit
 		}
+	case "r":
+		if len(m.list) > 0 {
+			m.action, m.slug = PromptRun, m.list[m.cursor].Slug()
+			return m, tea.Quit
+		}
 	case "n":
 		m.action = PromptNew
 		return m, tea.Quit
@@ -189,7 +195,7 @@ func (m *promptListModel) View() tea.View {
 	case m.status != "":
 		b.WriteString(okStyle.Render(m.status))
 	}
-	b.WriteString("\n" + dimStyle.Render("↑/↓ move · enter edit · n new · d delete · esc back"))
+	b.WriteString("\n" + dimStyle.Render("↑/↓ move · enter edit · r start agent · n new · d delete · esc back"))
 	v := tea.NewView(b.String())
 	v.AltScreen = true
 	return v

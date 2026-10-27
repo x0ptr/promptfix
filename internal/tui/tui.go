@@ -15,6 +15,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/x0ptr/promptfix/internal/agent"
 	"github.com/x0ptr/promptfix/internal/prompt"
 	"github.com/x0ptr/promptfix/internal/rules"
 	"github.com/x0ptr/promptfix/internal/schema"
@@ -35,12 +36,21 @@ type Options struct {
 	// ctrl+x; empty disables the export.
 	ExportScopes []rules.Kind
 	ExportRule   func(scope rules.Kind, rel, content string) error
+	// Launch configures ctrl+g (start an agent). Split starts the agent in a
+	// new pane; Remember stores the chosen options. Handoff is returned in
+	// Result.Launch, since promptfix has to exit first.
+	Launch   LaunchConfig
+	Split    func(o agent.Options, prompt string) error
+	Remember func(agent.Options)
 }
 
 // Result describes how the editor was left.
 type Result struct {
 	Saved   bool // saved at least once
 	Unsaved bool // quit with unsaved changes discarded
+	// Launch is set when the user chose to hand the terminal to an agent;
+	// the prompt has been saved.
+	Launch *agent.Options
 }
 
 // Run starts the editor and blocks until the user quits.
@@ -49,7 +59,7 @@ func Run(o Options) (Result, error) {
 	if _, err := tea.NewProgram(m).Run(); err != nil {
 		return Result{}, err
 	}
-	return Result{Saved: m.saved, Unsaved: m.dirty}, nil
+	return Result{Saved: m.saved, Unsaved: m.dirty, Launch: m.launch}, nil
 }
 
 type mode int
@@ -60,6 +70,7 @@ const (
 	modePreview
 	modeConfirmQuit
 	modeExport
+	modeLaunch
 )
 
 // row is one overview entry: a section of the prompt (idx >= 0) or a schema
@@ -91,6 +102,9 @@ type Model struct {
 
 	exportInput textinput.Model
 	exportScope int
+
+	picker *launchPicker
+	launch *agent.Options
 
 	width, height int
 
@@ -149,6 +163,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.updateConfirm(msg)
 		case modeExport:
 			return m, m.updateExport(msg)
+		case modeLaunch:
+			return m, m.updateLaunch(msg)
 		}
 	}
 	var cmd tea.Cmd
@@ -194,6 +210,9 @@ func (m *Model) updateSection(msg tea.KeyPressMsg) tea.Cmd {
 	case "ctrl+c":
 		m.commit()
 		return m.requestQuit()
+	case "ctrl+g":
+		m.commit()
+		return m.openLaunch()
 	case "ctrl+x":
 		m.commit()
 		if len(m.opts.ExportScopes) == 0 {
@@ -265,10 +284,64 @@ func (m *Model) updateOverview(msg tea.KeyPressMsg) tea.Cmd {
 		m.showPreview()
 	case "s", "ctrl+s":
 		m.save()
+	case "ctrl+g":
+		return m.openLaunch()
 	case "q", "esc", "ctrl+c":
 		return m.requestQuit()
 	}
 	return nil
+}
+
+func (m *Model) openLaunch() tea.Cmd {
+	if !m.opts.Launch.anyFound() {
+		m.setStatus("No agent found. "+agent.SupportNote, true)
+		return nil
+	}
+	m.ta.Blur()
+	m.prevMode = m.mode
+	m.mode = modeLaunch
+	m.picker = newLaunchPicker(m.opts.Launch)
+	return m.picker.focus()
+}
+
+// updateLaunch drives the agent picker. The prompt is saved before the agent
+// starts, so the run is always traceable in the history.
+func (m *Model) updateLaunch(msg tea.KeyPressMsg) tea.Cmd {
+	if msg.String() == "ctrl+c" {
+		return m.requestQuit()
+	}
+	done, cancel, cmd := m.picker.update(msg)
+	if !done && !cancel {
+		return cmd
+	}
+	m.mode = m.prevMode
+	back := func() tea.Cmd {
+		if m.mode == modeSection {
+			return m.ta.Focus()
+		}
+		return nil
+	}
+	if cancel {
+		return back()
+	}
+	o := m.picker.options()
+	if m.opts.Remember != nil {
+		m.opts.Remember(o)
+	}
+	m.opts.Launch.Last = o
+	if !m.save() {
+		return back()
+	}
+	if o.Mode == agent.Handoff {
+		m.launch = &o
+		return tea.Quit
+	}
+	if err := m.opts.Split(o, prompt.Render(m.p)); err != nil {
+		m.setStatus("Start failed: "+err.Error(), true)
+		return back()
+	}
+	m.setStatus(fmt.Sprintf("Started %s in a split pane", o.Agent), false)
+	return back()
 }
 
 func (m *Model) updatePreview(msg tea.KeyPressMsg) tea.Cmd {
@@ -505,14 +578,14 @@ func (m *Model) View() tea.View {
 		body = m.ta.View()
 		keys = "^n next · ^p prev · ^o overview · ^e editor · ^r preview · ^s save · ^c quit"
 		if len(m.opts.ExportScopes) > 0 {
-			keys = "^n next · ^p prev · ^o overview · ^e editor · ^r preview · ^x to rule · ^s save · ^c quit"
+			keys = "^n next · ^p prev · ^o overview · ^e editor · ^r preview · ^x to rule · ^g agent · ^s save · ^c quit"
 		}
 	case modeOverview:
 		header = m.headerLine("overview") + "\n" +
 			titleStyle.Render("Sections") + "\n" +
 			dimStyle.Render(fmt.Sprintf("%d of %d filled", m.p.Filled(), len(m.p.Sections)))
 		body = m.overviewView()
-		keys = "↑/↓ move · enter edit · p preview · s save · q quit"
+		keys = "↑/↓ move · enter edit · p preview · ^g start agent · s save · q quit"
 	case modePreview:
 		header = m.headerLine("preview") + "\n" +
 			titleStyle.Render("Preview") + "\n" +
@@ -534,6 +607,12 @@ func (m *Model) View() tea.View {
 		}
 		body = "Scope: " + strings.Join(scopes, "  ") + "\n\n" + m.exportInput.View()
 		keys = "tab switch scope · enter export · esc cancel"
+	case modeLaunch:
+		header = m.headerLine("agent") + "\n" +
+			titleStyle.Render("Start agent with this prompt") + "\n" +
+			dimStyle.Render("The prompt is saved first; working directory: where promptfix was started")
+		body = m.picker.view()
+		keys = launchKeys
 	case modeConfirmQuit:
 		header = m.headerLine("quit") + "\n" + titleStyle.Render("Unsaved changes") + "\n"
 		body = "Save before quitting?"

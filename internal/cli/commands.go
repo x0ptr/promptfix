@@ -146,9 +146,15 @@ func (a *app) runEditor(cmd *cobra.Command, st *store.Store, p *prompt.Prompt, s
 			return err
 		}
 	}
+	o.Launch = a.launchConfig()
+	o.Remember = a.rememberLaunch
+	o.Split = startAgent
 	res, err := tui.Run(o)
 	if err != nil {
 		return err
+	}
+	if res.Launch != nil {
+		return startAgent(*res.Launch, prompt.Render(p))
 	}
 	switch {
 	case res.Unsaved:

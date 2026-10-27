@@ -94,7 +94,7 @@ func newRoot() *cobra.Command {
 		newCmd(a), editCmd(a), listCmd(a), showCmd(a), exportCmd(a), copyCmd(a),
 		cpCmd(a), mvCmd(a), rmCmd(a),
 		historyCmd(a), restoreCmd(a), pruneCmd(a),
-		rulesCmd(a), configCmd(a), versionCmd(),
+		runCmd(a), rulesCmd(a), configCmd(a), versionCmd(), agentExecCmd(),
 	)
 	return root
 }
@@ -145,6 +145,8 @@ func (a *app) promptsHome(cmd *cobra.Command) (bool, error) {
 			err = a.editPrompt(cmd, slug)
 		case tui.PromptNew:
 			err = a.newPrompt(cmd, "", "")
+		case tui.PromptRun:
+			err = a.runPrompt(cmd, slug, nil)
 		}
 		if err != nil {
 			return false, err

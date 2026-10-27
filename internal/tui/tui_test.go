@@ -5,11 +5,13 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/x0ptr/promptfix/internal/agent"
 	"github.com/x0ptr/promptfix/internal/prompt"
 	"github.com/x0ptr/promptfix/internal/rules"
 	"github.com/x0ptr/promptfix/internal/schema"
@@ -324,5 +326,107 @@ func TestExportSectionAsRule(t *testing.T) {
 	}
 	if h.m.mode != modeSection {
 		t.Fatal("should return to the section")
+	}
+}
+
+func launchCfg(found ...agent.ID) LaunchConfig {
+	var agents []agent.Agent
+	for _, id := range agent.Supported {
+		a := agent.Agent{ID: id}
+		if slices.Contains(found, id) {
+			a.Path = "/bin/" + string(id)
+		}
+		agents = append(agents, a)
+	}
+	return LaunchConfig{Agents: agents, Mux: agent.Tmux, Last: agent.Options{Agent: agent.Claude, Mode: agent.Handoff}}
+}
+
+// S2: handoff saves the prompt and returns the choice; the CLI then execs.
+func TestLaunchHandoff(t *testing.T) {
+	p := newPrompt(testSchema())
+	h := newHarness(t, p, true)
+	h.m.opts.Launch = launchCfg(agent.Claude, agent.OpenCode)
+	var remembered agent.Options
+	h.m.opts.Remember = func(o agent.Options) { remembered = o }
+	h.typeText("hello")
+	h.key("ctrl+g")
+	if h.m.mode != modeLaunch {
+		t.Fatal("ctrl+g should open the picker")
+	}
+	h.key("down")
+	h.key("down") // model field
+	h.typeText("opus")
+	h.key("down") // permissions
+	h.m.Update(tea.KeyPressMsg{Code: tea.KeyRight})
+	if !isQuit(h.key("enter")) {
+		t.Fatal("handoff should quit the TUI")
+	}
+	want := agent.Options{Agent: agent.Claude, Mode: agent.Handoff, Model: "opus", PermissionMode: "plan"}
+	if h.m.launch == nil || *h.m.launch != want || remembered != want {
+		t.Fatalf("launch=%+v remembered=%+v", h.m.launch, remembered)
+	}
+	if len(h.saves) != 1 || !strings.Contains(h.saves[0], "hello") {
+		t.Fatal("prompt must be saved before starting")
+	}
+}
+
+// S3: split calls the split starter with the rendered prompt and stays open.
+func TestLaunchSplit(t *testing.T) {
+	p := newPrompt(testSchema())
+	p.Sections[0].Content = "x"
+	h := newHarness(t, p, false)
+	h.m.opts.Launch = launchCfg(agent.Claude, agent.OpenCode)
+	var got agent.Options
+	var gotPrompt string
+	h.m.opts.Split = func(o agent.Options, pr string) error { got, gotPrompt = o, pr; return nil }
+	h.key("ctrl+g")
+	h.m.Update(tea.KeyPressMsg{Code: tea.KeyRight}) // agent: opencode
+	h.key("down")
+	h.m.Update(tea.KeyPressMsg{Code: tea.KeyRight}) // mode: split
+	h.key("down")
+	h.m.Update(tea.KeyPressMsg{Code: tea.KeySpace, Text: " "}) // --auto
+	if isQuit(h.key("enter")) {
+		t.Fatal("split must keep promptfix running")
+	}
+	want := agent.Options{Agent: agent.OpenCode, Mode: agent.Split, Auto: true}
+	if got != want || gotPrompt != prompt.Render(p) {
+		t.Fatalf("split got %+v %q", got, gotPrompt)
+	}
+	if h.m.mode != modeOverview || h.m.launch != nil {
+		t.Fatal("should return to the overview")
+	}
+}
+
+// S1: missing agents cannot be selected; no agent at all is reported.
+func TestLaunchDetection(t *testing.T) {
+	h := newHarness(t, newPrompt(testSchema()), false)
+	h.m.opts.Launch = launchCfg()
+	h.key("ctrl+g")
+	if h.m.mode == modeLaunch || !strings.Contains(h.m.status, "only claude and opencode") {
+		t.Fatalf("mode=%v status=%q", h.m.mode, h.m.status)
+	}
+
+	cfg := launchCfg(agent.OpenCode)
+	h.m.opts.Launch = cfg
+	h.key("ctrl+g")
+	if h.m.picker.o.Agent != agent.OpenCode {
+		t.Fatal("should preselect the installed agent")
+	}
+	h.m.Update(tea.KeyPressMsg{Code: tea.KeyRight})
+	if h.m.picker.o.Agent != agent.OpenCode || !strings.Contains(h.m.picker.err, "only claude and opencode") {
+		t.Fatalf("switched to missing agent: %+v err=%q", h.m.picker.o, h.m.picker.err)
+	}
+	if !strings.Contains(h.m.View().Content, "not found") {
+		t.Error("missing agent not shown")
+	}
+
+	cfg.Mux = agent.NoMux
+	h.m.opts.Launch = cfg
+	h.key("esc")
+	h.key("ctrl+g")
+	h.key("down")
+	h.m.Update(tea.KeyPressMsg{Code: tea.KeyRight})
+	if h.m.picker.o.Mode != agent.Handoff || !strings.Contains(h.m.picker.err, "split needs") {
+		t.Fatal("split must not be selectable without a multiplexer")
 	}
 }
