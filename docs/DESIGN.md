@@ -196,7 +196,7 @@ Makefile              build, test, dist (linux/darwin/windows × amd64/arm64)
 
 ---
 
-# AP2 – Claude Code rules (draft, not implemented)
+# AP2 – Claude Code rules
 
 Manage Claude Code rule files (`.claude/rules/**/*.md`) in the user scope and in
 the current project. Only rule files – no `CLAUDE.md`, no `settings.json`.
@@ -206,61 +206,83 @@ the current project. Only rule files – no `CLAUDE.md`, no `settings.json`.
 | Scope | Location |
 |---|---|
 | User | `$CLAUDE_CONFIG_DIR/rules`, else `~/.claude/rules` (Windows: `%USERPROFILE%\.claude\rules`) |
-| Project | `<git-root>/.claude/rules`; git root = first directory upwards from cwd containing `.git` (dir or file, so worktrees/submodules work); override with `--project DIR` |
+| Project | `<git-root>/.claude/rules`; git root = first directory upwards from cwd containing `.git` (dir or file, so worktrees/submodules work); override with `--root DIR` |
 
-No git root found → only the user scope is available; the TUI says so. promptfix
-never creates `.claude/rules` outside a git root unless `--project DIR` is given.
+No git root found → only the user scope is available; TUI and `rules list` say
+so, `rules new` without `--user` fails. promptfix never creates `.claude/rules`
+outside a git root unless `--root DIR` is given.
 
 ## Rule files
 
 - Free Markdown body, optional YAML frontmatter delimited by `---` lines.
-- promptfix edits only two things: the body and the `paths` key.
-- **Byte preservation:** frontmatter is not re-serialized. Editing `paths` replaces
+- promptfix edits only two things: the body and the `paths` key (string or list of strings).
+- **Byte preservation:** frontmatter is never re-serialized. Editing `paths` replaces
   only the lines of the top-level `paths:` block (or appends it at the end of the
-  frontmatter, or removes it when emptied). Other keys, order and comments stay
-  byte-identical; body-only edits leave the frontmatter untouched.
-- Frontmatter that cannot be parsed safely → the rule is read-only in the TUI,
-  editable only as a whole file in the external editor.
-- Subdirectories are listed and selectable as target when creating.
-- Symlinks are read-only and show their target.
+  frontmatter, or removes it when emptied; a frontmatter that becomes empty is
+  dropped). Other keys, order and comments stay byte-identical.
+- The TUI text fields normalize tabs and CR; a field the user did not change keeps
+  its original bytes. Changed bodies use the file's line ending (taken from the
+  first line).
+- Unclosed or invalid frontmatter, or an unsupported `paths` value → read-only in
+  the TUI; editable only as a whole file in the external editor (`ctrl+e`).
+- Subdirectories are listed and can be created (`security/tenant-id`); `.md` is
+  appended when no extension is given; paths must stay inside the rules directory.
+- Symlinks are read-only (no edit, delete, move) and show their target.
+- Deleting removes subdirectories that became empty.
 
 ## History
 
 Raw file bytes (not YAML), so restore is exact:
 
 ```
-<data>/rules-history/<scope-id>/<rel-path>/<revision>.md
+<data>/rules-history/<scope-id>/<url-escaped rel-path>/<revision>.md
 ```
 
-`scope-id` = `user` or `project-<slug-of-root-dir>-<short hash of abs path>`.
+`scope-id` = `user` or `project-<slug-of-root-dir>-<8 hex of sha256(abs path)>`.
 Every save, delete, move and overwrite archives the previous bytes first.
-`rules prune` mirrors `prune` (`--all`, `--keep`, `--older-than`).
+Writing identical content is a no-op.
 
 ## Cross-scope
 
-- Copy / move a rule between user and project (conflict → ask, `--force` in CLI).
-- A rule whose relative path exists in both scopes is marked in both lists
+- Copy / move a rule between user and project. Existing target → confirm in the
+  TUI, `--force` in the CLI; the old target content goes to history.
+- A rule whose relative path exists in both scopes is flagged in both lists
   (Claude Code loads both; project wins).
 
 ## TUI
 
-`promptfix rules [--user | --project [DIR]]`: list with scope toggle (`tab`),
-showing relative path, `paths` summary ("always" when absent) and line count.
-Rule editor: `paths` list field + Markdown textarea, `ctrl+e` external editor,
-same save/quit semantics as the prompt editor.
-
-List keys: `enter` edit · `n` new · `d` delete · `c` copy to other scope ·
-`m` move to other scope · `h` history · `tab` switch scope · `q` quit.
+- Bare `promptfix` (in a terminal) opens a start menu: **Prompts** (list: edit,
+  new, delete) and **Rules**. Not in a terminal → help.
+- `promptfix rules [--user | --project] [--root DIR]` opens the rules manager;
+  starts in the project scope if available.
+- List: relative path, `paths` summary ("always" when absent), line count, flags
+  (read-only, "also in …"). Keys: `enter` edit · `n` new · `d` delete · `c` copy /
+  `m` move to other scope · `h` history (enter restores) · `tab` switch scope · `q` quit.
+- Editor: `paths` field (one glob per line) + Markdown field; `tab` switches,
+  `ctrl+s` save, `ctrl+e` whole file in external editor, `esc` back (asks if
+  unsaved), `ctrl+c` quit.
+- Prompt editor: `ctrl+x` exports the current section as a new rule (path input,
+  `tab` switches scope; existing rules are not overwritten).
 
 ## CLI
 
-`promptfix rules list | show | new | edit | rm | cp | mv | history | restore | prune`,
-each with `--user` / `--project [DIR]`.
+`promptfix rules list | show | new | edit | rm | cp | mv | history | restore | prune | from-prompt`
 
-## Open
+- Scope flags: `--user`, `--project`, `--root DIR`.
+- Commands on an existing rule pick the scope that has it; present in both →
+  error asking for `--user`/`--project`. Deleted rules are found via their history.
+- `new` opens the TUI in a terminal; with piped stdin it writes the body from stdin
+  (`--paths a,b`, `--force`). New rules go to the project unless `--user`.
+- `from-prompt <prompt> <tag> <path>` creates a rule from a prompt section.
 
-- Start menu for bare `promptfix` (Prompts / Rules)?
-- Export a prompt section as a rule?
-- File names: derived from a title (slug) or typed directly?
-- Show the match count of `paths` globs in project scope?
-- Acceptance R1–R5 (see chat).
+## Not done
+
+- Match count of `paths` globs (left open).
+
+## Acceptance
+
+- **R1** Create a project rule with `paths` → file at `.claude/rules/<name>.md` with valid frontmatter.
+- **R2** Switch between user and project → both lists correct, each with its path.
+- **R3** Edit a hand-written rule with unknown frontmatter fields → only the content changes, everything else byte-identical.
+- **R4** Delete a rule → restorable from history.
+- **R5** No git repository → clear message, only the user scope, no file in a wrong place.

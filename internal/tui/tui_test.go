@@ -11,6 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/x0ptr/promptfix/internal/prompt"
+	"github.com/x0ptr/promptfix/internal/rules"
 	"github.com/x0ptr/promptfix/internal/schema"
 )
 
@@ -281,4 +282,47 @@ func TestExternalEditor(t *testing.T) {
 
 func runScript(script, arg string) error {
 	return exec.Command(script, arg).Run()
+}
+
+// The textarea normalizes tabs and CR; navigating through a section must
+// not change its content.
+func TestUntouchedContentKept(t *testing.T) {
+	p := newPrompt(testSchema())
+	p.Sections[0].Content = "\tindented\r\nline"
+	h := newHarness(t, p, true)
+	h.key("ctrl+n")
+	h.key("ctrl+p")
+	h.key("ctrl+o")
+	if p.Sections[0].Content != "\tindented\r\nline" || h.m.dirty {
+		t.Fatalf("content changed to %q, dirty=%v", p.Sections[0].Content, h.m.dirty)
+	}
+}
+
+func TestExportSectionAsRule(t *testing.T) {
+	p := newPrompt(testSchema())
+	p.Sections[0].Content = "rule text"
+	type call struct {
+		scope   rules.Kind
+		rel     string
+		content string
+	}
+	var calls []call
+	h := newHarness(t, p, true)
+	h.m.opts.ExportScopes = []rules.Kind{rules.Project, rules.User}
+	h.m.opts.ExportRule = func(k rules.Kind, rel, content string) error {
+		calls = append(calls, call{k, rel, content})
+		return nil
+	}
+	h.key("ctrl+x")
+	if h.m.mode != modeExport || h.m.exportInput.Value() != "product.md" {
+		t.Fatalf("mode=%v value=%q", h.m.mode, h.m.exportInput.Value())
+	}
+	h.m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	h.key("enter")
+	if len(calls) != 1 || calls[0] != (call{rules.User, "product.md", "rule text"}) {
+		t.Fatalf("calls = %+v", calls)
+	}
+	if h.m.mode != modeSection {
+		t.Fatal("should return to the section")
+	}
 }

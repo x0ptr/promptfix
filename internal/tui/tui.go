@@ -10,11 +10,13 @@ import (
 
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/textarea"
+	"charm.land/bubbles/v2/textinput"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
 	"github.com/x0ptr/promptfix/internal/prompt"
+	"github.com/x0ptr/promptfix/internal/rules"
 	"github.com/x0ptr/promptfix/internal/schema"
 )
 
@@ -29,6 +31,10 @@ type Options struct {
 	Editor string
 	// Wizard starts at the first section instead of the overview.
 	Wizard bool
+	// ExportScopes lists the rule scopes a section can be exported to with
+	// ctrl+x; empty disables the export.
+	ExportScopes []rules.Kind
+	ExportRule   func(scope rules.Kind, rel, content string) error
 }
 
 // Result describes how the editor was left.
@@ -53,6 +59,7 @@ const (
 	modeOverview
 	modePreview
 	modeConfirmQuit
+	modeExport
 )
 
 // row is one overview entry: a section of the prompt (idx >= 0) or a schema
@@ -78,8 +85,12 @@ type Model struct {
 	idx      int // edited section
 	cursor   int // overview row
 
-	ta textarea.Model
-	vp viewport.Model
+	ta     textarea.Model
+	loaded string // textarea value right after loading the section
+	vp     viewport.Model
+
+	exportInput textinput.Model
+	exportScope int
 
 	width, height int
 
@@ -101,7 +112,9 @@ func New(o Options) *Model {
 	ta.KeyMap.LinePrevious = key.NewBinding(key.WithKeys("up"))
 	ta.KeyMap.LineEnd = key.NewBinding(key.WithKeys("end"))
 
-	m := &Model{opts: o, p: o.Prompt, ta: ta, vp: viewport.New(), width: 80, height: 24}
+	ei := textinput.New()
+	ei.Placeholder = "security/tenant-id.md"
+	m := &Model{opts: o, p: o.Prompt, ta: ta, vp: viewport.New(), exportInput: ei, width: 80, height: 24}
 	m.resize()
 	if o.Wizard && len(m.p.Sections) > 0 {
 		m.initCmd = m.openSection(0)
@@ -134,6 +147,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.updatePreview(msg)
 		case modeConfirmQuit:
 			return m, m.updateConfirm(msg)
+		case modeExport:
+			return m, m.updateExport(msg)
 		}
 	}
 	var cmd tea.Cmd
@@ -179,9 +194,46 @@ func (m *Model) updateSection(msg tea.KeyPressMsg) tea.Cmd {
 	case "ctrl+c":
 		m.commit()
 		return m.requestQuit()
+	case "ctrl+x":
+		m.commit()
+		if len(m.opts.ExportScopes) == 0 {
+			m.setStatus("Export to rules is not available", true)
+			return nil
+		}
+		m.ta.Blur()
+		m.mode = modeExport
+		m.exportInput.SetValue(m.p.Sections[m.idx].Tag + ".md")
+		m.exportInput.CursorEnd()
+		return m.exportInput.Focus()
 	}
 	var cmd tea.Cmd
 	m.ta, cmd = m.ta.Update(msg)
+	return cmd
+}
+
+func (m *Model) updateExport(msg tea.KeyPressMsg) tea.Cmd {
+	switch msg.String() {
+	case "esc":
+		m.exportInput.Blur()
+		m.mode = modeSection
+		return m.ta.Focus()
+	case "tab":
+		m.exportScope = (m.exportScope + 1) % len(m.opts.ExportScopes)
+		return nil
+	case "enter":
+		scope := m.opts.ExportScopes[m.exportScope]
+		rel := m.exportInput.Value()
+		if err := m.opts.ExportRule(scope, rel, m.p.Sections[m.idx].Content); err != nil {
+			m.setStatus("Export failed: "+err.Error(), true)
+			return nil
+		}
+		m.setStatus(fmt.Sprintf("Exported to %s rule %s", scope, rel), false)
+		m.exportInput.Blur()
+		m.mode = modeSection
+		return m.ta.Focus()
+	}
+	var cmd tea.Cmd
+	m.exportInput, cmd = m.exportInput.Update(msg)
 	return cmd
 }
 
@@ -259,14 +311,16 @@ func (m *Model) updateConfirm(msg tea.KeyPressMsg) tea.Cmd {
 	return nil
 }
 
-// commit copies the textarea content into the edited section.
+// commit copies the textarea content into the edited section. The
+// textarea normalizes some characters (tabs, CR), so content the user did
+// not touch is kept as is.
 func (m *Model) commit() {
 	if m.mode != modeSection {
 		return
 	}
-	s := &m.p.Sections[m.idx]
-	if v := m.ta.Value(); v != s.Content {
-		s.Content = v
+	if v := m.ta.Value(); v != m.loaded {
+		m.p.Sections[m.idx].Content = v
+		m.loaded = v
 		m.dirty = true
 	}
 }
@@ -276,6 +330,7 @@ func (m *Model) openSection(i int) tea.Cmd {
 	m.mode = modeSection
 	sec := m.p.Sections[i]
 	m.ta.SetValue(sec.Content)
+	m.loaded = m.ta.Value()
 	m.ta.MoveToBegin()
 	m.ta.Placeholder = ""
 	if def, ok := m.opts.Schema.Section(sec.Tag); ok {
@@ -407,8 +462,12 @@ func (m *Model) editorDone(msg editorDoneMsg) tea.Cmd {
 	if !strings.HasSuffix(msg.orig, "\n") {
 		content = strings.TrimSuffix(strings.TrimSuffix(content, "\n"), "\r")
 	}
+	if s := &m.p.Sections[m.idx]; content != s.Content {
+		s.Content = content
+		m.dirty = true
+	}
 	m.ta.SetValue(content)
-	m.commit()
+	m.loaded = m.ta.Value()
 	return m.ta.Focus()
 }
 
@@ -445,6 +504,9 @@ func (m *Model) View() tea.View {
 			dimStyle.Render(truncate(def.Help, m.width))
 		body = m.ta.View()
 		keys = "^n next · ^p prev · ^o overview · ^e editor · ^r preview · ^s save · ^c quit"
+		if len(m.opts.ExportScopes) > 0 {
+			keys = "^n next · ^p prev · ^o overview · ^e editor · ^r preview · ^x to rule · ^s save · ^c quit"
+		}
 	case modeOverview:
 		header = m.headerLine("overview") + "\n" +
 			titleStyle.Render("Sections") + "\n" +
@@ -457,6 +519,21 @@ func (m *Model) View() tea.View {
 			dimStyle.Render(fmt.Sprintf("%3.0f%%", m.vp.ScrollPercent()*100))
 		body = m.vp.View()
 		keys = "↑/↓ scroll · c copy · ctrl+s save · esc back"
+	case modeExport:
+		sec := m.p.Sections[m.idx]
+		header = m.headerLine("export") + "\n" +
+			titleStyle.Render("Export <"+sec.Tag+"> as rule") + "\n" +
+			dimStyle.Render("Path relative to the rules directory; subdirectories allowed")
+		var scopes []string
+		for i, k := range m.opts.ExportScopes {
+			if i == m.exportScope {
+				scopes = append(scopes, selStyle.Render("● "+k.String()))
+			} else {
+				scopes = append(scopes, dimStyle.Render("○ "+k.String()))
+			}
+		}
+		body = "Scope: " + strings.Join(scopes, "  ") + "\n\n" + m.exportInput.View()
+		keys = "tab switch scope · enter export · esc cancel"
 	case modeConfirmQuit:
 		header = m.headerLine("quit") + "\n" + titleStyle.Render("Unsaved changes") + "\n"
 		body = "Save before quitting?"

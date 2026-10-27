@@ -19,6 +19,7 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
+	"github.com/x0ptr/promptfix/internal/fsutil"
 	"github.com/x0ptr/promptfix/internal/prompt"
 )
 
@@ -272,6 +273,14 @@ type PruneOptions struct {
 	All       bool          // delete every entry
 }
 
+// Drop reports whether the history entry at position i (0 = newest), saved
+// at t, is selected for deletion. cutoff is now minus OlderThan.
+func (o PruneOptions) Drop(i int, t, cutoff time.Time) bool {
+	return o.All ||
+		(o.Keep > 0 && i >= o.Keep) ||
+		(o.OlderThan > 0 && t.Before(cutoff))
+}
+
 // Prune deletes history entries of one prompt, or of all prompts if name is
 // empty. It returns the number of deleted entries.
 func (s *Store) Prune(name string, o PruneOptions) (int, error) {
@@ -299,10 +308,7 @@ func (s *Store) Prune(name string, o PruneOptions) (int, error) {
 			return n, err
 		}
 		for i, r := range revs {
-			drop := o.All ||
-				(o.Keep > 0 && i >= o.Keep) ||
-				(o.OlderThan > 0 && r.Time.Before(cutoff))
-			if !drop {
+			if !o.Drop(i, r.Time, cutoff) {
 				continue
 			}
 			if err := os.Remove(filepath.Join(s.historyDir(slug), r.ID+".yaml")); err != nil {
@@ -331,7 +337,7 @@ func readFile(path string) (*prompt.Prompt, error) {
 	return &p, nil
 }
 
-// writeFile writes p atomically: temp file in the same directory, then rename.
+// writeFile writes p atomically.
 func writeFile(path string, p *prompt.Prompt) error {
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
@@ -342,25 +348,5 @@ func writeFile(path string, p *prompt.Prompt) error {
 	if err := enc.Close(); err != nil {
 		return err
 	}
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(dir, ".tmp-*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(tmp.Name())
-	if _, err := tmp.Write(buf.Bytes()); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmp.Name(), path)
+	return fsutil.WriteAtomic(path, buf.Bytes(), 0o644)
 }

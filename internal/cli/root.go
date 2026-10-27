@@ -6,10 +6,12 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/charmbracelet/x/term"
 	"github.com/spf13/cobra"
 
 	"github.com/x0ptr/promptfix/internal/schema"
 	"github.com/x0ptr/promptfix/internal/store"
+	"github.com/x0ptr/promptfix/internal/tui"
 )
 
 // Version is set at build time via -ldflags "-X ...cli.Version=...".
@@ -80,12 +82,72 @@ func newRoot() *cobra.Command {
 		Version:       Version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		Args:          cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if !term.IsTerminal(os.Stdin.Fd()) || !term.IsTerminal(os.Stdout.Fd()) {
+				return cmd.Help()
+			}
+			return a.home(cmd)
+		},
 	}
 	root.AddCommand(
 		newCmd(a), editCmd(a), listCmd(a), showCmd(a), exportCmd(a), copyCmd(a),
 		cpCmd(a), mvCmd(a), rmCmd(a),
 		historyCmd(a), restoreCmd(a), pruneCmd(a),
-		configCmd(a), versionCmd(),
+		rulesCmd(a), configCmd(a), versionCmd(),
 	)
 	return root
+}
+
+// home runs the start menu: prompts or rules, until the user quits.
+func (a *app) home(cmd *cobra.Command) error {
+	items := []tui.MenuItem{
+		{Title: "Prompts", Desc: "create and edit prompts"},
+		{Title: "Rules", Desc: "Claude Code rules (user and project)"},
+	}
+	for {
+		choice, err := tui.RunMenu(items)
+		if err != nil || choice < 0 {
+			return err
+		}
+		switch choice {
+		case 0:
+			quit, err := a.promptsHome(cmd)
+			if err != nil || quit {
+				return err
+			}
+		case 1:
+			if err := a.runRulesUI(scopeFlags{}, "", false); err != nil {
+				return err
+			}
+		}
+	}
+}
+
+// promptsHome runs the prompt list until the user goes back (false) or
+// quits (true).
+func (a *app) promptsHome(cmd *cobra.Command) (bool, error) {
+	st, err := a.prompts()
+	if err != nil {
+		return false, err
+	}
+	for {
+		action, slug, err := tui.RunPromptList(st)
+		if err != nil {
+			return false, err
+		}
+		switch action {
+		case tui.PromptBack:
+			return false, nil
+		case tui.PromptQuit:
+			return true, nil
+		case tui.PromptEdit:
+			err = a.editPrompt(cmd, slug)
+		case tui.PromptNew:
+			err = a.newPrompt(cmd, "", "")
+		}
+		if err != nil {
+			return false, err
+		}
+	}
 }

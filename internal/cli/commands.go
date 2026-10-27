@@ -16,6 +16,7 @@ import (
 
 	"github.com/x0ptr/promptfix/internal/clipboard"
 	"github.com/x0ptr/promptfix/internal/prompt"
+	"github.com/x0ptr/promptfix/internal/rules"
 	"github.com/x0ptr/promptfix/internal/schema"
 	"github.com/x0ptr/promptfix/internal/store"
 	"github.com/x0ptr/promptfix/internal/tui"
@@ -28,44 +29,11 @@ func newCmd(a *app) *cobra.Command {
 		Short: "Create a prompt with the step-by-step wizard",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := a.config()
-			if err != nil {
-				return err
-			}
-			st, err := a.prompts()
-			if err != nil {
-				return err
-			}
-			sch, err := cfg.Schema(schemaName)
-			if err != nil {
-				return fmt.Errorf("%w (available: %s)", err, strings.Join(cfg.SchemaNames(), ", "))
-			}
-			validate := func(name string) error {
-				if err := prompt.ValidateName(name); err != nil {
-					return err
-				}
-				if st.Exists(name) {
-					return fmt.Errorf("%q: %w", name, store.ErrExists)
-				}
-				return nil
-			}
 			name := ""
 			if len(args) == 1 {
 				name = args[0]
-			} else if err := huh.NewInput().Title("Prompt name").Value(&name).Validate(validate).Run(); err != nil {
-				if errors.Is(err, huh.ErrUserAborted) {
-					return nil
-				}
-				return err
 			}
-			if err := validate(name); err != nil {
-				return err
-			}
-			p := &prompt.Prompt{Name: name, Schema: sch.Name}
-			for _, sec := range sch.Sections {
-				p.Sections = append(p.Sections, prompt.Section{Tag: sec.Tag})
-			}
-			return runEditor(cmd, a, st, p, sch, true)
+			return a.newPrompt(cmd, name, schemaName)
 		},
 	}
 	cmd.Flags().StringVar(&schemaName, "schema", "", "schema to use (default from config)")
@@ -79,6 +47,47 @@ func newCmd(a *app) *cobra.Command {
 	return cmd
 }
 
+// newPrompt asks for a name if none is given and starts the wizard.
+func (a *app) newPrompt(cmd *cobra.Command, name, schemaName string) error {
+	cfg, err := a.config()
+	if err != nil {
+		return err
+	}
+	st, err := a.prompts()
+	if err != nil {
+		return err
+	}
+	sch, err := cfg.Schema(schemaName)
+	if err != nil {
+		return fmt.Errorf("%w (available: %s)", err, strings.Join(cfg.SchemaNames(), ", "))
+	}
+	validate := func(name string) error {
+		if err := prompt.ValidateName(name); err != nil {
+			return err
+		}
+		if st.Exists(name) {
+			return fmt.Errorf("%q: %w", name, store.ErrExists)
+		}
+		return nil
+	}
+	if name == "" {
+		if err := huh.NewInput().Title("Prompt name").Value(&name).Validate(validate).Run(); err != nil {
+			if errors.Is(err, huh.ErrUserAborted) {
+				return nil
+			}
+			return err
+		}
+	}
+	if err := validate(name); err != nil {
+		return err
+	}
+	p := &prompt.Prompt{Name: name, Schema: sch.Name}
+	for _, sec := range sch.Sections {
+		p.Sections = append(p.Sections, prompt.Section{Tag: sec.Tag})
+	}
+	return a.runEditor(cmd, st, p, sch, true)
+}
+
 func editCmd(a *app) *cobra.Command {
 	return &cobra.Command{
 		Use:               "edit <name>",
@@ -86,32 +95,36 @@ func editCmd(a *app) *cobra.Command {
 		Args:              cobra.ExactArgs(1),
 		ValidArgsFunction: completeNames(a, 1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := a.config()
-			if err != nil {
-				return err
-			}
-			st, err := a.prompts()
-			if err != nil {
-				return err
-			}
-			p, err := st.Load(args[0])
-			if err != nil {
-				return err
-			}
-			sch, err := cfg.Schema(p.Schema)
-			if err != nil {
-				// The prompt is self-contained; without its schema there are
-				// just no help texts and no sections to add.
-				fmt.Fprintf(cmd.ErrOrStderr(), "warning: %v; editing without schema hints\n", err)
-				sch = schema.Schema{Name: p.Schema}
-			}
-			return runEditor(cmd, a, st, p, sch, false)
+			return a.editPrompt(cmd, args[0])
 		},
 	}
 }
 
-func runEditor(cmd *cobra.Command, a *app, st *store.Store, p *prompt.Prompt, sch schema.Schema, wizard bool) error {
-	res, err := tui.Run(tui.Options{
+func (a *app) editPrompt(cmd *cobra.Command, name string) error {
+	cfg, err := a.config()
+	if err != nil {
+		return err
+	}
+	st, err := a.prompts()
+	if err != nil {
+		return err
+	}
+	p, err := st.Load(name)
+	if err != nil {
+		return err
+	}
+	sch, err := cfg.Schema(p.Schema)
+	if err != nil {
+		// The prompt is self-contained; without its schema there are
+		// just no help texts and no sections to add.
+		fmt.Fprintf(cmd.ErrOrStderr(), "warning: %v; editing without schema hints\n", err)
+		sch = schema.Schema{Name: p.Schema}
+	}
+	return a.runEditor(cmd, st, p, sch, false)
+}
+
+func (a *app) runEditor(cmd *cobra.Command, st *store.Store, p *prompt.Prompt, sch schema.Schema, wizard bool) error {
+	o := tui.Options{
 		Prompt: p,
 		Schema: sch,
 		Editor: a.editor(),
@@ -120,7 +133,20 @@ func runEditor(cmd *cobra.Command, a *app, st *store.Store, p *prompt.Prompt, sc
 			_, err := st.Save(p)
 			return err
 		},
-	})
+	}
+	// Export of sections as rules (ctrl+x); unavailable if scopes fail.
+	if rs, err := a.ruleScopes(scopeFlags{}); err == nil {
+		o.ExportScopes = rs.exportScopes()
+		o.ExportRule = func(k rules.Kind, rel, content string) error {
+			m, err := rs.byKind(k)
+			if err != nil {
+				return err
+			}
+			_, err = createRule(m, rel, nil, content, false)
+			return err
+		}
+	}
+	res, err := tui.Run(o)
 	if err != nil {
 		return err
 	}
