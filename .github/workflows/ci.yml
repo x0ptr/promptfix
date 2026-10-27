@@ -1,0 +1,125 @@
+name: CI
+
+on:
+  push:
+    # Branches only; tags are handled by release.yml (which calls this workflow).
+    branches: ["**"]
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        run: |
+          out="$(gofmt -l .)"
+          if [ -n "$out" ]; then echo "$out"; exit 1; fi
+      - run: go vet ./...
+      - name: shellcheck
+        run: shellcheck install.sh scripts/*.sh
+
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go test ./...
+
+  # Builds all release archives without publishing; the installers are
+  # tested against them below.
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --snapshot --clean
+      - uses: actions/upload-artifact@v4
+        with:
+          name: snapshot
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/checksums.txt
+          retention-days: 3
+
+  installer:
+    needs: snapshot
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: snapshot
+          path: assets
+      - name: Serve assets
+        shell: bash
+        run: |
+          cd assets
+          python3 -m http.server 8765 --bind 127.0.0.1 >/dev/null 2>&1 &
+          for _ in $(seq 1 30); do
+            curl -fsS -o /dev/null http://127.0.0.1:8765/checksums.txt && exit 0
+            sleep 1
+          done
+          exit 1
+
+      - name: install.sh
+        if: runner.os != 'Windows'
+        shell: bash
+        env:
+          PROMPTFIX_DOWNLOAD_URL: http://127.0.0.1:8765
+          PROMPTFIX_INSTALL_DIR: ${{ runner.temp }}/bin
+        run: |
+          bash install.sh
+          "$PROMPTFIX_INSTALL_DIR/promptfix" version | grep -q snapshot
+          # Second run updates in place.
+          bash install.sh
+      - name: install.sh rejects a tampered archive
+        if: runner.os != 'Windows'
+        shell: bash
+        env:
+          PROMPTFIX_INSTALL_DIR: ${{ runner.temp }}/tampered
+        run: |
+          mkdir bad && cp assets/* bad/
+          for f in bad/*.tar.gz; do echo x >> "$f"; done
+          if PROMPTFIX_DOWNLOAD_URL="file://$PWD/bad" bash install.sh; then
+            echo "tampered archive was installed"; exit 1
+          fi
+          test ! -e "$PROMPTFIX_INSTALL_DIR/promptfix"
+
+      - name: install.ps1
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          PROMPTFIX_DOWNLOAD_URL: http://127.0.0.1:8765
+          PROMPTFIX_INSTALL_DIR: ${{ runner.temp }}\bin
+        run: |
+          Get-Content -Raw install.ps1 | Invoke-Expression
+          $v = & "$env:PROMPTFIX_INSTALL_DIR\promptfix.exe" version
+          if ($v -notmatch 'snapshot') { throw "unexpected version: $v" }
+          # Second run replaces the existing binary.
+          Get-Content -Raw install.ps1 | Invoke-Expression

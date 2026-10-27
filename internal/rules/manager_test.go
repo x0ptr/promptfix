@@ -229,7 +229,8 @@ func TestScopes(t *testing.T) {
 	}
 	p1, _ := ProjectScope("/x/my-proj")
 	p2, _ := ProjectScope("/y/my-proj")
-	if p1.ID == p2.ID || p1.Dir != filepath.FromSlash("/x/my-proj/.claude/rules") {
+	abs, _ := filepath.Abs("/x/my-proj") // gets a drive letter on Windows
+	if p1.ID == p2.ID || p1.Dir != filepath.Join(abs, ".claude", "rules") {
 		t.Fatalf("project scopes %+v %+v", p1, p2)
 	}
 }

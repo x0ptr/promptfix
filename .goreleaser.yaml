@@ -1,0 +1,44 @@
+# GoReleaser v2 – builds the release for tags v*. See docs/DESIGN.md (AP4).
+version: 2
+
+project_name: promptfix
+
+builds:
+  - id: promptfix
+    main: ./cmd/promptfix
+    binary: promptfix
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X github.com/x0ptr/promptfix/internal/cli.Version={{ if .IsSnapshot }}{{ .Version }}{{ else }}{{ .Tag }}{{ end }}
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: promptfix
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    # No version in the name: the installers fetch
+    # releases/latest/download/<name> without calling the API.
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - README.md
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-snapshot"
+
+changelog:
+  sort: asc
+
+release:
+  # Tags like v0.1.0-rc.1 become pre-releases and are never "latest".
+  prerelease: auto

@@ -383,7 +383,7 @@ argument tests only.
 
 ---
 
-# AP4 – Releases and installer (draft, not implemented)
+# AP4 – Releases and installer
 
 Tagged releases for Linux, macOS and Windows built in GitHub Actions, plus
 one-line installers. The repository goes public once this is done; until then
@@ -446,7 +446,8 @@ curl -fsSL …/install.sh | PROMPTFIX_INSTALL_DIR=/usr/local/bin bash
 - Installs to `~/.local/bin` (no sudo) atomically (temp file + `mv`); prints old →
   new version if promptfix was installed; warns if the directory is not in `PATH`.
 - `PROMPTFIX_DOWNLOAD_URL` overrides the base URL (tests, mirrors).
-- Optional: if `gh` is installed, prints the command to verify the attestation.
+- `PROMPTFIX_VERIFY_ATTESTATION=1`: also runs `gh attestation verify` on the
+  archive before installing (opt-in; needs `gh` and a public repository).
 
 ## `install.ps1` (Windows)
 
@@ -468,9 +469,11 @@ irm https://raw.githubusercontent.com/x0ptr/promptfix/main/install.ps1 | iex
 
 ## Testing before the repository is public
 
-- Scripts: GoReleaser snapshot build locally, served from a local directory via
-  `PROMPTFIX_DOWNLOAD_URL`; checks I2–I5 on Linux. `install.ps1` is checked
-  for syntax only unless a Windows machine is available.
+- `ci.yml` builds a GoReleaser snapshot and runs both installers against it on
+  ubuntu, macos and windows (assets served by a local HTTP server via
+  `PROMPTFIX_DOWNLOAD_URL`), including a tampered-archive check.
+- `release.yml` installs the published release with both one-liners on all three
+  systems (`verify` job) – skipped while the repository is private.
 - Workflow: a pre-release tag (e.g. `v0.1.0-rc.1`) on the private repo
   exercises the release job; it can be deleted afterwards.
 

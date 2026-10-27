@@ -2,7 +2,8 @@
 # Build promptfix from this checkout and install it for the current user.
 # Linux and macOS only; on Windows use the .exe from `make dist`.
 #
-# Usage: scripts/install.sh [--prefix DIR]   (default: ~/.local/bin)
+# Usage: scripts/install-from-source.sh [--prefix DIR]   (default: ~/.local/bin)
+# To install a released binary instead, use install.sh in the repository root.
 set -euo pipefail
 
 prefix="${HOME}/.local/bin"

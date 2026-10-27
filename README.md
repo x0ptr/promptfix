@@ -18,13 +18,54 @@ Short description
 
 ## Install
 
+Linux and macOS (installs to `~/.local/bin`):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/x0ptr/promptfix/main/install.sh | bash
+```
+
+Windows (PowerShell; installs to `%LOCALAPPDATA%\Programs\promptfix` and adds it
+to the user PATH):
+
+```powershell
+irm https://raw.githubusercontent.com/x0ptr/promptfix/main/install.ps1 | iex
+```
+
+Options (environment variables, both installers):
+
+| Variable | Effect |
+|---|---|
+| `PROMPTFIX_VERSION=v0.1.0` | install this release instead of the latest |
+| `PROMPTFIX_INSTALL_DIR=DIR` | install to DIR |
+| `PROMPTFIX_VERIFY_ATTESTATION=1` | `install.sh` only: also verify the build provenance with `gh attestation verify` |
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/x0ptr/promptfix/main/install.sh | PROMPTFIX_VERSION=v0.1.0 bash
+```
+
+The installers verify the SHA-256 checksum of every download. To update, run the
+installer again (promptfix has no self-update; it stays offline).
+
+**Uninstall:** delete the binary (`~/.local/bin/promptfix`, or
+`%LOCALAPPDATA%\Programs\promptfix` on Windows, plus its user PATH entry).
+Prompts, history and config stay in the directories listed under [Files](#files);
+delete them too if you want.
+
+### From source
+
 Requires Go 1.27+.
 
 ```sh
-scripts/install.sh            # builds and installs to ~/.local/bin
-scripts/install.sh --prefix /usr/local/bin
-make dist                     # binaries for linux/darwin/windows × amd64/arm64 in dist/
+scripts/install-from-source.sh   # builds and installs to ~/.local/bin
+make dist                        # binaries for linux/darwin/windows × amd64/arm64 in dist/
 ```
+
+### Releases
+
+Pushing a tag `v*` runs `.github/workflows/release.yml`: tests on Linux, macOS
+and Windows, then GoReleaser publishes archives (`promptfix_<os>_<arch>.tar.gz`,
+`.zip` for Windows) and `checksums.txt`. Tags with a suffix (`v0.2.0-rc.1`) become
+pre-releases.
 
 ## Usage
 

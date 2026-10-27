@@ -1,0 +1,82 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to (re)build, e.g. v0.1.0
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    needs: ci
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the release
+      id-token: write # attestations
+      attestations: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Attestations for private repositories need GitHub Enterprise Cloud.
+      - uses: actions/attest-build-provenance@v2
+        if: ${{ !github.event.repository.private }}
+        with:
+          subject-path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/checksums.txt
+
+  # Installs the published release with the one-liners. Only possible once
+  # the repository is public (downloads need no auth).
+  verify:
+    needs: release
+    if: ${{ !github.event.repository.private }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - name: install.sh
+        if: runner.os != 'Windows'
+        shell: bash
+        env:
+          PROMPTFIX_INSTALL_DIR: ${{ runner.temp }}/bin
+        run: |
+          PROMPTFIX_VERSION="$TAG" bash install.sh
+          test "$("$PROMPTFIX_INSTALL_DIR/promptfix" version)" = "promptfix $TAG"
+      - name: install.ps1
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          PROMPTFIX_INSTALL_DIR: ${{ runner.temp }}\bin
+        run: |
+          $env:PROMPTFIX_VERSION = $env:TAG
+          Get-Content -Raw install.ps1 | Invoke-Expression
+          $v = & "$env:PROMPTFIX_INSTALL_DIR\promptfix.exe" version
+          if ($v -ne "promptfix $env:TAG") { throw "unexpected version: $v" }
