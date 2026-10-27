@@ -54,7 +54,7 @@ sections:                 # ordered; this order is the render order
   - tag: product
     content: |
       ...
-  - tag: glossar
+  - tag: glossary
     content: ""
 ```
 
@@ -85,9 +85,11 @@ reported with file path and line; `promptfix config validate` checks explicitly.
 
 ### Built-in default schema
 
-`product, glossar, technik, querschnitt, abweichungen, nicht_ziele, aufgabe,
-abnahme, arbeitsweise` – with help texts and the examples from the original
-spec as placeholders.
+`product, glossary, technology, cross_cutting, deviations, non_goals, task,
+acceptance, way_of_working` – English tags, titles, help texts and example
+placeholders (originally German: produkt/glossar/technik/querschnitt/abweichungen/
+nicht_ziele/aufgabe/abnahme/arbeitsweise). Existing prompts keep their own tags;
+a German schema can be defined in the config.
 
 ## Rendering
 
@@ -96,7 +98,7 @@ spec as placeholders.
 {content}
 </product>
 
-<glossar></glossar>
+<glossary></glossary>
 ```
 
 - Sections in stored order, separated by one blank line.

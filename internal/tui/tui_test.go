@@ -114,7 +114,7 @@ func TestWizardFillAndSave(t *testing.T) {
 	if !strings.HasPrefix(out, "<product>\nA prompt builder\nfor the CLI\n</product>\n") {
 		t.Errorf("unexpected product section:\n%s", out)
 	}
-	if !strings.Contains(out, "<technik>\nGo 1.27\n</technik>") || !strings.Contains(out, "<glossar></glossar>") {
+	if !strings.Contains(out, "<technology>\nGo 1.27\n</technology>") || !strings.Contains(out, "<glossary></glossary>") {
 		t.Errorf("unexpected output:\n%s", out)
 	}
 	last := -1
@@ -180,12 +180,12 @@ func TestJumpEditSave(t *testing.T) {
 		h.key("down")
 	}
 	h.key("enter")
-	if h.m.idx != 6 || p.Sections[6].Tag != "aufgabe" {
+	if h.m.idx != 6 || p.Sections[6].Tag != "task" {
 		t.Fatalf("jumped to %d", h.m.idx)
 	}
 	h.typeText("AP1")
 	h.key("ctrl+s")
-	if len(h.saves) != 1 || !strings.Contains(h.saves[0], "<aufgabe>\nAP1\n</aufgabe>") {
+	if len(h.saves) != 1 || !strings.Contains(h.saves[0], "<task>\nAP1\n</task>") {
 		t.Fatalf("save output: %v", h.saves)
 	}
 	if p.Sections[0].Content != "keep" {
@@ -219,19 +219,19 @@ func TestDiscardChanges(t *testing.T) {
 func TestAddMissingSchemaSection(t *testing.T) {
 	p := &prompt.Prompt{Name: "old", Sections: []prompt.Section{
 		{Tag: "product", Content: "x"},
-		{Tag: "aufgabe", Content: "y"},
+		{Tag: "task", Content: "y"},
 	}}
 	h := newHarness(t, p, false)
 	rows := h.m.rows()
 	if len(rows) != len(testSchema().Sections) {
 		t.Fatalf("rows = %d", len(rows))
 	}
-	// rows: product, aufgabe, then missing in schema order: glossar first.
+	// rows: product, task, then missing in schema order: glossary first.
 	h.key("down")
 	h.key("down")
 	h.key("enter")
-	if got := p.Sections[1].Tag; got != "glossar" {
-		t.Fatalf("inserted %q at 1, want glossar", got)
+	if got := p.Sections[1].Tag; got != "glossary" {
+		t.Fatalf("inserted %q at 1, want glossary", got)
 	}
 	if h.m.idx != 1 || !h.m.dirty {
 		t.Fatal("should edit the new section and be dirty")

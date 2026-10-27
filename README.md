@@ -3,7 +3,7 @@
 Build structured prompts step by step in the terminal, then hand them to
 claude or opencode. promptfix itself works offline.
 
-A prompt consists of tagged sections (`<product>`, `<technik>`, `<aufgabe>`, …).
+A prompt consists of tagged sections (`<product>`, `<technology>`, `<task>`, …).
 promptfix walks you through them, saves drafts with history, and renders the
 final prompt:
 
@@ -12,7 +12,7 @@ final prompt:
 Short description
 </product>
 
-<glossar></glossar>
+<glossary></glossary>
 ...
 ```
 
@@ -120,7 +120,7 @@ promptfix rules new security/tenant-id          # opens the editor
 echo "Use gofmt." | promptfix rules new style --user --paths '**/*.go'
 promptfix rules cp|mv <rule>        # to the other scope
 promptfix rules history|restore|prune
-promptfix rules from-prompt my-api arbeitsweise workflow
+promptfix rules from-prompt my-api way_of_working workflow
 ```
 
 Only `paths` and the body are edited; other frontmatter stays byte-identical.

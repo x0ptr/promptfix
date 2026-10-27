@@ -29,7 +29,7 @@ func TestDefault(t *testing.T) {
 	for _, sec := range s.Sections {
 		tags = append(tags, sec.Tag)
 	}
-	want := "product glossar technik querschnitt abweichungen nicht_ziele aufgabe abnahme arbeitsweise"
+	want := "product glossary technology cross_cutting deviations non_goals task acceptance way_of_working"
 	if got := strings.Join(tags, " "); got != want {
 		t.Fatalf("default tags = %q, want %q", got, want)
 	}

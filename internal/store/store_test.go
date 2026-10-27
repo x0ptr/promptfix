@@ -23,7 +23,7 @@ func newTestStore(t *testing.T) *Store {
 func sample(name string) *prompt.Prompt {
 	return &prompt.Prompt{Name: name, Schema: "default", Sections: []prompt.Section{
 		{Tag: "product", Content: "A tool"},
-		{Tag: "aufgabe", Content: ""},
+		{Tag: "task", Content: ""},
 	}}
 }
 
@@ -38,7 +38,7 @@ func mustSave(t *testing.T, s *Store, p *prompt.Prompt) {
 func TestRoundTripSpecialContent(t *testing.T) {
 	s := newTestStore(t)
 	contents := []string{
-		"</aufgabe>\n<product>x</product>",
+		"</task>\n<product>x</product>",
 		"  leading spaces\n\ttab\ntrailing spaces   \n\n",
 		"key: value\n- list\n# comment\n---\n...",
 		"\"quotes\" 'single' `back` & <>",

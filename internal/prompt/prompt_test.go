@@ -5,12 +5,12 @@ import "testing"
 func TestRender(t *testing.T) {
 	p := &Prompt{Sections: []Section{
 		{Tag: "product", Content: "A tool.\n\n"},
-		{Tag: "glossar", Content: "  \n"},
-		{Tag: "abnahme", Content: "  indented\n<b>tag-like</b> </abnahme> text"},
+		{Tag: "glossary", Content: "  \n"},
+		{Tag: "acceptance", Content: "  indented\n<b>tag-like</b> </acceptance> text"},
 	}}
 	want := "<product>\nA tool.\n</product>\n" +
-		"\n<glossar></glossar>\n" +
-		"\n<abnahme>\n  indented\n<b>tag-like</b> </abnahme> text\n</abnahme>\n"
+		"\n<glossary></glossary>\n" +
+		"\n<acceptance>\n  indented\n<b>tag-like</b> </acceptance> text\n</acceptance>\n"
 	if got := Render(p); got != want {
 		t.Fatalf("Render mismatch\ngot:\n%q\nwant:\n%q", got, want)
 	}

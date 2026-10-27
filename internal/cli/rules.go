@@ -378,7 +378,7 @@ func rulesCmd(a *app) *cobra.Command {
 	fromPrompt := &cobra.Command{
 		Use:     "from-prompt <prompt> <tag> <path>",
 		Short:   "Create a rule from a prompt section",
-		Example: "  promptfix rules from-prompt my-api arbeitsweise workflow",
+		Example: "  promptfix rules from-prompt my-api way_of_working workflow",
 		Args:    cobra.ExactArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			st, err := a.prompts()

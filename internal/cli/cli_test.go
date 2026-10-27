@@ -35,7 +35,7 @@ func seed(t *testing.T, name, content string) {
 	st := store.New(os.Getenv("PROMPTFIX_HOME"), 0)
 	p := &prompt.Prompt{Name: name, Schema: "default", Sections: []prompt.Section{
 		{Tag: "product", Content: content},
-		{Tag: "glossar"},
+		{Tag: "glossary"},
 	}}
 	if _, err := st.Save(p); err != nil {
 		t.Fatal(err)
@@ -47,7 +47,7 @@ func TestShowListExport(t *testing.T) {
 	seed(t, "My Prompt", "v1")
 
 	out, err := run(t, "show", "My Prompt")
-	if err != nil || out != "<product>\nv1\n</product>\n\n<glossar></glossar>\n" {
+	if err != nil || out != "<product>\nv1\n</product>\n\n<glossary></glossary>\n" {
 		t.Fatalf("show: %q, %v", out, err)
 	}
 	out, err = run(t, "list")

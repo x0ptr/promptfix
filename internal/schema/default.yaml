@@ -18,50 +18,50 @@ schemas:
       - tag: product
         title: Product
         help: Short description of the product.
-        example: Kurzbeschreibung
+        example: A CLI tool that guides the user step by step through building a structured prompt.
         required: true
-      - tag: glossar
+      - tag: glossary
         title: Glossary
         help: Definitions of domain terms.
-        example: Klärung Begriffe
-      - tag: technik
+        example: "Tenant: an organization with its own isolated data"
+      - tag: technology
         title: Technology
         help: Language and version, frameworks, databases, authentication.
         example: |
-          Programmiersprache + Version,
-          Frameworks,
-          Datenbanken mit plugin,
-          Anmeldung über X (bspw: Entra ID),
-          je X ein Y
-      - tag: querschnitt
+          Language + version,
+          frameworks,
+          databases with plugins,
+          sign-in via X (e.g. Entra ID),
+          one Y per X
+      - tag: cross_cutting
         title: Cross-cutting concerns
         help: Tenancy, permissions, data protection.
-        example: Mandanten, Rechte, Datenschutz
-      - tag: abweichungen
+        example: Tenancy, permissions, data protection
+      - tag: deviations
         title: Deviations
         help: Deliberate deviations from the usual approach, each with a reason.
         example: |
-          - der x_id wird ausschliesslich aus dem Token abgeleitet,
-            nie aus Parametern der Anfrage, Grund: "Parameter sind manipulierbar"
-          - RLS, Tenant Trennung über DB erzwungen
-      - tag: nicht_ziele
+          - tenant_id is derived from the token only,
+            never from request parameters. Reason: "parameters can be tampered with"
+          - row-level security: tenant separation is enforced by the database
+      - tag: non_goals
         title: Non-goals
         help: What is explicitly out of scope.
-        example: Kein Abruf aus Sharepoint
-      - tag: aufgabe
+        example: No import from SharePoint
+      - tag: task
         title: Task
         help: The work package to do now.
-        example: "AP1 Fundament: Datenmodell, Trennung nach Tenant, Rollen und Rechte"
+        example: "WP1 Foundation: data model, tenant separation, roles and permissions"
         required: true
-      - tag: abnahme
+      - tag: acceptance
         title: Acceptance
         help: Verifiable acceptance criteria.
-        example: A1 Nutzer aus Tenant A fragt ein Dokument aus Tenant B per ID ab -> 404, kein Hinweis, dass die Akte existiert
-      - tag: arbeitsweise
+        example: A1 A user of tenant A requests a document of tenant B by ID -> 404, no hint that the document exists
+      - tag: way_of_working
         title: Way of working
         help: How the result should be delivered.
         example: |
-          Schreibe noch kein Code. Liefere zuerst:
-            1. Alle xy
-            2. offene Fragen, nach Risiko sortiert
+          Do not write code yet. First deliver:
+            1. all ...
+            2. open questions, sorted by risk
         required: true
