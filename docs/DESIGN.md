@@ -286,3 +286,82 @@ Writing identical content is a no-op.
 - **R3** Edit a hand-written rule with unknown frontmatter fields → only the content changes, everything else byte-identical.
 - **R4** Delete a rule → restorable from history.
 - **R5** No git repository → clear message, only the user scope, no file in a wrong place.
+
+---
+
+# AP3 – Start an agent (draft, not implemented)
+
+Build the prompt, then start **claude** or **opencode** with it. The user picks
+the agent. No headless mode, no embedded terminal.
+
+Amended non-goal: promptfix itself opens no network connections and calls no AI
+API; it only starts locally installed agent CLIs.
+
+## Detection
+
+- Supported: `claude`, `opencode` – nothing else for now. The picker states this
+  ("currently only claude and opencode are supported").
+- Lookup: `PATH`, then the default install locations
+  (`~/.local/bin/claude`, `~/.claude/local/claude`, `~/.opencode/bin/opencode`;
+  `.exe` on Windows).
+- Not found → shown greyed out with install hint, not selectable.
+- No version calls, no `opencode models` (may hit the network).
+
+## Modes
+
+| Mode | Behaviour | Availability |
+|---|---|---|
+| **Handoff** | promptfix exits; the agent runs in the same terminal (Unix: `exec` replaces the process; Windows: child with inherited stdio, exit code passed through) | always |
+| **Split** | agent opens in a new pane to the right; promptfix keeps running | inside tmux (`$TMUX`), zellij (`$ZELLIJ`) or WezTerm (`$WEZTERM_PANE`); otherwise greyed out with reason |
+
+Working directory: the directory promptfix was started in (also for split panes).
+
+### Split without quoting problems
+
+Multiplexers pass commands through a shell, prompts contain arbitrary text. So the
+pane runs promptfix itself as launcher:
+
+```
+tmux split-window -h -c <cwd> -- <promptfix> agent-exec --file <tmp>
+zellij run --direction right --cwd <cwd> -- <promptfix> agent-exec --file <tmp>
+wezterm cli split-pane --right --cwd <cwd> -- <promptfix> agent-exec --file <tmp>
+```
+
+`<tmp>` (mode 0600) holds agent, options and prompt; the hidden `agent-exec`
+command reads it, deletes it and `exec`s the agent. Only safe path arguments
+cross the shell.
+
+## Passing the prompt
+
+As argument (rendered prompt, see `show`):
+
+- claude: `claude [--model M] [--permission-mode P] -- "<prompt>"`
+- opencode: `opencode [--auto] --prompt "<prompt>"`
+
+Windows command lines are limited to ~32k characters; longer prompts are rejected
+with a hint (copy/export instead).
+
+## Picker
+
+Opened with `ctrl+g` (prompt editor and overview), `r` (prompt list) or
+`promptfix run <name>`:
+
+1. Agent: claude / opencode (detected state shown)
+2. Mode: Handoff / Split
+3. Options per agent
+   - claude: model (free text, suggestions `opus`, `sonnet`, `haiku`, `fable`; empty = default),
+     permission mode (`default`, `plan`, `acceptEdits`, `auto`, …)
+   - opencode: auto-approve (`--auto`) on/off; no model option (the interactive
+     CLI has none – it uses the opencode config)
+
+The last selection is remembered per user (`<data>/launch.yaml`).
+`promptfix run <name> --agent claude --mode split --model opus --permission-mode plan`
+skips the picker.
+
+## Acceptance (proposal)
+
+- **S1** Picker shows both agents with detection state; a missing agent is not selectable and the "only claude/opencode" note is shown.
+- **S2** Handoff starts the chosen agent in the start directory with the rendered prompt; promptfix is gone.
+- **S3** Split (in tmux) opens the agent in a new pane; promptfix stays usable.
+- **S4** A prompt with quotes, `$()`, backticks, newlines and `<tags>` arrives at the agent unchanged in both modes.
+- **S5** claude options (model, permission mode) and opencode `--auto` end up on the command line exactly as chosen.
